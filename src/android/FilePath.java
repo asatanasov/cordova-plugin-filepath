@@ -1,5 +1,6 @@
 package com.hiddentao.cordova.filepath;
 
+import android.content.Intent;
 import android.text.TextUtils;
 import android.Manifest;
 import android.content.ContentUris;
@@ -24,7 +25,9 @@ import org.json.JSONObject;
 import org.json.JSONException;
 
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.List;
 import java.io.File;
 
@@ -215,6 +218,8 @@ public class FilePath extends CordovaPlugin {
                 final int column_index = cursor.getColumnIndexOrThrow(column);
                 return cursor.getString(column_index);
             }
+        } catch (Exception exception) {
+            exception.printStackTrace();
         } finally {
             if (cursor != null)
                 cursor.close();
@@ -261,8 +266,7 @@ public class FilePath extends CordovaPlugin {
     private static String getPathFromExtSD(String[] pathData) {
         final String type = pathData[0];
         final String relativePath = "/" + pathData[1];
-        String fullPath = "";
-
+        String fullPath;
         // on my Sony devices (4.4.4 & 5.1.1), `type` is a dynamic string
         // something like "71F8-2C0A", some kind of unique id per storage
         // don't know any API that can get the root path of that storage based on its id.
@@ -274,7 +278,10 @@ public class FilePath extends CordovaPlugin {
                 return fullPath;
             }
         }
-
+        fullPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) + relativePath;
+        if (fileExists(fullPath)) {
+            return fullPath;
+        }
         // Environment.isExternalStorageRemovable() is `true` for external and internal storage
         // so we cannot relay on it.
         //
@@ -376,6 +383,37 @@ public class FilePath extends CordovaPlugin {
                     contentUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
                 } else if ("audio".equals(type)) {
                     contentUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+                } else if ("document".equals(type)) {
+
+                    String filename = null;
+//                    String mimeType = context.getContentResolver().getType(uri);
+//                    if (mimeType == null) {
+//                        String path = getPath(context, uri);
+//                        if (path == null) {
+////                            filename = FilenameUtils.getName(uri.toString());
+//                        } else {
+//                            File file = new File(path);
+//                            filename = file.getName();
+//                        }
+//                    } else {
+                    Uri returnUri = uri;
+                    Cursor returnCursor = context.getContentResolver().query(returnUri, null, null, null, null);
+                    int nameIndex = returnCursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    int sizeIndex = returnCursor.getColumnIndex(OpenableColumns.SIZE);
+                    returnCursor.moveToFirst();
+                    filename = returnCursor.getString(nameIndex);
+                    String size = Long.toString(returnCursor.getLong(sizeIndex));
+//                    }
+                    File fileSave = context.getExternalFilesDir(null);
+                    String sourcePath = context.getExternalFilesDir(null).toString();
+                    File file = new File(sourcePath + "/" + filename);
+                    try {
+                        copyFileStream(file, uri, context);
+
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    return file.getAbsolutePath();
                 }
 
                 final String selection = "_id=?";
@@ -417,6 +455,30 @@ public class FilePath extends CordovaPlugin {
         return null;
     }
 
+    private static void copyFileStream(File dest, Uri uri, Context context) {
+        InputStream is = null;
+        OutputStream os = null;
+        try {
+            is = context.getContentResolver().openInputStream(uri);
+            os = new FileOutputStream(dest);
+            byte[] buffer = new byte[1024];
+            int length;
+
+            while ((length = is.read(buffer)) > 0) {
+                os.write(buffer, 0, length);
+
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                is.close();
+                os.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
     private static String getDriveFilePath(Uri uri,Context context){
         Uri returnUri =uri;
         Cursor returnCursor = context.getContentResolver().query(returnUri, null, null, null, null);
